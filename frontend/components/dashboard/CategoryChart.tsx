@@ -42,10 +42,10 @@ export function CategoryChart({ filters }: CategoryChartProps) {
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number) => [formatCurrency(value), "Revenue"]}
+                formatter={(value) => [formatCurrency(value as number), "Revenue"]}
               />
               <Legend
-                formatter={(value, entry: any) =>
+                formatter={(value, entry: { payload?: { percentage?: number } }) =>
                   `${value} (${entry.payload?.percentage?.toFixed(1)}%)`
                 }
                 iconSize={10}

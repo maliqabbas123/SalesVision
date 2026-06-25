@@ -51,7 +51,7 @@ export function TopProductsChart({ filters }: TopProductsChartProps) {
                 axisLine={false}
                 width={120}
               />
-              <Tooltip formatter={(value: number) => [formatCurrency(value), "Revenue"]} />
+              <Tooltip formatter={(value) => [formatCurrency(value as number), "Revenue"]} />
               <Bar dataKey="revenue" fill="#6366f1" radius={[0, 4, 4, 0]} />
             </BarChart>
           </ResponsiveContainer>

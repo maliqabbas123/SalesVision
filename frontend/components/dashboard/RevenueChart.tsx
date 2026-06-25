@@ -65,7 +65,7 @@ export function RevenueChart({ filters }: RevenueChartProps) {
                 tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
               />
               <Tooltip
-                formatter={(value: number) => [formatCurrency(value), "Revenue"]}
+                formatter={(value) => [formatCurrency(value as number), "Revenue"]}
                 labelStyle={{ fontWeight: 600 }}
               />
               <Area
