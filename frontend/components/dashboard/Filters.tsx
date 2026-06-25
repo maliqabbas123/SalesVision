@@ -34,11 +34,11 @@ export function Filters({ filters, onFiltersChange, activePreset, onPresetChange
   function applyPreset(preset: (typeof DATE_PRESETS)[number]) {
     let from: Date
     if ("months" in preset) {
-      from = subMonths(now, preset.months)
+      from = subMonths(now, preset.months as number)
     } else if ("years" in preset) {
-      from = subYears(now, preset.years)
+      from = subYears(now, preset.years as number)
     } else {
-      from = subDays(now, preset.days)
+      from = subDays(now, preset.days as number)
     }
     onPresetChange(preset.label)
     onFiltersChange({
