@@ -14,9 +14,6 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.execute("CREATE TYPE productcategory AS ENUM ('Electronics', 'Clothing', 'Books', 'Home & Garden', 'Sports')")
-    op.execute("CREATE TYPE orderstatus AS ENUM ('completed', 'pending', 'cancelled')")
-
     op.create_table(
         "products",
         sa.Column("id", sa.Integer(), primary_key=True),

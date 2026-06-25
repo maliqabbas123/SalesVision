@@ -7,7 +7,6 @@ Usage (from backend/ directory):
 import asyncio
 import random
 from datetime import datetime, timedelta
-from decimal import Decimal
 
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker
@@ -77,157 +76,119 @@ LAST_NAMES = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Mille
 
 
 def seasonal_weight(dt: datetime) -> float:
-    """Higher order volume in Q4 (Nov-Dec), lower in Jan-Feb."""
-    month = dt.month
     weights = {1: 0.6, 2: 0.65, 3: 0.8, 4: 0.85, 5: 0.9, 6: 0.95,
                7: 1.0, 8: 1.0, 9: 1.0, 10: 1.1, 11: 1.4, 12: 1.6}
-    return weights.get(month, 1.0)
+    return weights.get(dt.month, 1.0)
 
 
 async def seed():
     engine = create_async_engine(settings.DATABASE_URL, echo=False)
     session_factory = async_sessionmaker(engine, expire_on_commit=False)
+    rng = random.Random(42)
 
     async with session_factory() as session:
-        # Clear existing data
         await session.execute(text("TRUNCATE order_items, orders, customers, products RESTART IDENTITY CASCADE"))
         await session.commit()
         print("Cleared existing data")
 
-        # Insert products
-        rng = random.Random(42)
-        product_ids = []
+        # Products
         for i, (name, category, price) in enumerate(PRODUCTS, 1):
             sku = f"SKU-{category[:3].upper()}-{i:04d}"
             await session.execute(
-                text("INSERT INTO products (name, sku, category, price) VALUES (:name, :sku, :category, :price) RETURNING id"),
+                text("INSERT INTO products (name, sku, category, price) VALUES (:name, :sku, :category, :price)"),
                 {"name": name, "sku": sku, "category": category, "price": price},
             )
-            product_ids.append((i, category, Decimal(str(price))))
         await session.commit()
         print(f"Inserted {len(PRODUCTS)} products")
 
-        # Insert customers
-        customer_ids = []
-        used_emails = set()
-        for i in range(1, 201):
+        # Customers
+        used_emails: set = set()
+        customer_rows = []
+        for _ in range(200):
             first = rng.choice(FIRST_NAMES)
             last = rng.choice(LAST_NAMES)
-            base_email = f"{first.lower()}.{last.lower()}"
-            email = f"{base_email}@example.com"
-            counter = 1
+            base = f"{first.lower()}.{last.lower()}"
+            email = f"{base}@example.com"
+            n = 1
             while email in used_emails:
-                email = f"{base_email}{counter}@example.com"
-                counter += 1
+                email = f"{base}{n}@example.com"
+                n += 1
             used_emails.add(email)
             city, country = rng.choice(CITIES)
+            customer_rows.append({"name": f"{first} {last}", "email": email, "city": city, "country": country})
+        for row in customer_rows:
             await session.execute(
                 text("INSERT INTO customers (name, email, city, country) VALUES (:name, :email, :city, :country)"),
-                {"name": f"{first} {last}", "email": email, "city": city, "country": country},
+                row,
             )
-            customer_ids.append(i)
         await session.commit()
-        print(f"Inserted 200 customers")
+        print("Inserted 200 customers")
 
-        # Insert orders + order items
+        # Orders
         start_date = datetime(2024, 6, 25)
         end_date = datetime(2026, 6, 25)
-        total_days = (end_date - start_date).days
-
-        order_count = 0
-        item_count = 0
-        batch_orders = []
-        batch_items = []
-
-        # Generate ~1500 orders spread across 2 years
-        for day_offset in range(total_days):
+        order_rows = []
+        for day_offset in range((end_date - start_date).days):
             current_date = start_date + timedelta(days=day_offset)
             weight = seasonal_weight(current_date)
-            # Average ~2 orders/day, weighted by season
-            num_orders = rng.choices([0, 1, 2, 3, 4, 5], weights=[20, 30, 25, 15, 7, 3])[0]
-            num_orders = max(0, round(num_orders * weight))
-
+            num_orders = max(0, round(rng.choices([0, 1, 2, 3, 4, 5], weights=[20, 30, 25, 15, 7, 3])[0] * weight))
             for _ in range(num_orders):
-                status_roll = rng.random()
-                if status_roll < 0.80:
-                    status = "completed"
-                elif status_roll < 0.95:
-                    status = "pending"
-                else:
-                    status = "cancelled"
-
-                order_time = current_date + timedelta(
-                    hours=rng.randint(8, 22),
-                    minutes=rng.randint(0, 59),
-                )
-                customer_id = rng.randint(1, 200)
-                batch_orders.append({
-                    "customer_id": customer_id,
+                roll = rng.random()
+                status = "completed" if roll < 0.80 else ("pending" if roll < 0.95 else "cancelled")
+                order_time = current_date + timedelta(hours=rng.randint(8, 22), minutes=rng.randint(0, 59))
+                order_rows.append({
+                    "customer_id": rng.randint(1, 200),
                     "status": status,
                     "created_at": order_time,
                 })
 
-        # Bulk insert orders
-        if batch_orders:
-            result = await session.execute(
-                text("""
-                    INSERT INTO orders (customer_id, status, created_at)
-                    SELECT unnest(:customer_ids::int[]),
-                           unnest(:statuses::orderstatus[]),
-                           unnest(:created_ats::timestamp[])
-                    RETURNING id, status
-                """),
-                {
-                    "customer_ids": [o["customer_id"] for o in batch_orders],
-                    "statuses": [o["status"] for o in batch_orders],
-                    "created_ats": [o["created_at"] for o in batch_orders],
-                },
-            )
-            order_rows = result.fetchall()
-            order_count = len(order_rows)
+        # Insert orders in chunks and collect IDs
+        chunk_size = 200
+        all_order_ids = []
+        all_order_statuses = []
+        for i in range(0, len(order_rows), chunk_size):
+            chunk = order_rows[i:i + chunk_size]
+            for row in chunk:
+                result = await session.execute(
+                    text("INSERT INTO orders (customer_id, status, created_at) VALUES (:customer_id, :status, :created_at) RETURNING id, status"),
+                    row,
+                )
+                r = result.fetchone()
+                all_order_ids.append(r[0])
+                all_order_statuses.append(r[1])
             await session.commit()
-            print(f"Inserted {order_count} orders")
 
-            # Insert order items
-            for order_id, order_status in order_rows:
-                num_items = rng.choices([1, 2, 3, 4], weights=[40, 35, 18, 7])[0]
-                chosen_products = rng.sample(range(len(PRODUCTS)), min(num_items, len(PRODUCTS)))
-                for prod_idx in chosen_products:
-                    _, _, price = PRODUCTS[prod_idx]
-                    product_id = prod_idx + 1
-                    quantity = rng.choices([1, 2, 3], weights=[65, 25, 10])[0]
-                    batch_items.append({
-                        "order_id": order_id,
-                        "product_id": product_id,
-                        "quantity": quantity,
-                        "unit_price": float(price),
-                    })
+        print(f"Inserted {len(all_order_ids)} orders")
 
-            # Batch insert items in chunks
-            chunk_size = 500
-            for i in range(0, len(batch_items), chunk_size):
-                chunk = batch_items[i:i + chunk_size]
+        # Order items
+        item_count = 0
+        item_batch = []
+        for order_id in all_order_ids:
+            num_items = rng.choices([1, 2, 3, 4], weights=[40, 35, 18, 7])[0]
+            chosen = rng.sample(range(len(PRODUCTS)), min(num_items, len(PRODUCTS)))
+            for prod_idx in chosen:
+                _, _, price = PRODUCTS[prod_idx]
+                item_batch.append({
+                    "order_id": order_id,
+                    "product_id": prod_idx + 1,
+                    "quantity": rng.choices([1, 2, 3], weights=[65, 25, 10])[0],
+                    "unit_price": float(price),
+                })
+
+        for i in range(0, len(item_batch), chunk_size):
+            chunk = item_batch[i:i + chunk_size]
+            for row in chunk:
                 await session.execute(
-                    text("""
-                        INSERT INTO order_items (order_id, product_id, quantity, unit_price)
-                        SELECT unnest(:order_ids::int[]),
-                               unnest(:product_ids::int[]),
-                               unnest(:quantities::int[]),
-                               unnest(:unit_prices::numeric[])
-                    """),
-                    {
-                        "order_ids": [item["order_id"] for item in chunk],
-                        "product_ids": [item["product_id"] for item in chunk],
-                        "quantities": [item["quantity"] for item in chunk],
-                        "unit_prices": [item["unit_price"] for item in chunk],
-                    },
+                    text("INSERT INTO order_items (order_id, product_id, quantity, unit_price) VALUES (:order_id, :product_id, :quantity, :unit_price)"),
+                    row,
                 )
             await session.commit()
-            item_count = len(batch_items)
-            print(f"Inserted {item_count} order items")
+            item_count += len(chunk)
+
+        print(f"Inserted {item_count} order items")
 
     await engine.dispose()
-    print(f"\nSeed complete: {len(PRODUCTS)} products, 200 customers, {order_count} orders, {item_count} order items")
+    print(f"\nSeed complete: {len(PRODUCTS)} products, 200 customers, {len(all_order_ids)} orders, {item_count} items")
 
 
 if __name__ == "__main__":
