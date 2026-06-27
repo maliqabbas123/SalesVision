@@ -19,7 +19,7 @@ export function CategoryChart({ filters }: CategoryChartProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">Sales by Category</CardTitle>
+        <CardTitle className="text-sm font-semibold text-gray-800">Sales by Category</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (

@@ -23,7 +23,7 @@ export function TopProductsChart({ filters }: TopProductsChartProps) {
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base font-semibold">Top Products by Revenue</CardTitle>
+        <CardTitle className="text-sm font-semibold text-gray-800">Top Products by Revenue</CardTitle>
       </CardHeader>
       <CardContent>
         {isLoading ? (

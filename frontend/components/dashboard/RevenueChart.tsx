@@ -21,9 +21,9 @@ export function RevenueChart({ filters }: RevenueChartProps) {
   const { data, isLoading } = useRevenueOverTime({ ...filters, granularity })
 
   return (
-    <Card className="col-span-2">
+    <Card className="h-full">
       <CardHeader className="flex flex-row items-center justify-between pb-2">
-        <CardTitle className="text-base font-semibold">Revenue Over Time</CardTitle>
+        <CardTitle className="text-sm font-semibold text-gray-800">Revenue Over Time</CardTitle>
         <div className="flex gap-1">
           {GRANULARITIES.map((g) => (
             <Button
